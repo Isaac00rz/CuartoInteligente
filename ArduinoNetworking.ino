@@ -1,26 +1,15 @@
-/* Se importan las librerías a utilizar.
-   | DHT11 - Sensor temperatura-humedad.
-   | SPI, Client,Server, Ethernet - Nos ayudarán a
-      utilizar la placa Ethernet W5100 a actuar como
-      un servidor web.*/
-#include "DHT11.h"
 #include <SPI.h>
-#include <Client.h>
 #include <Ethernet.h>
-#include <Server.h>
+#include "DHT11.h"
 
-/* Pines para los sensores. */
-#define pinTh  2 //Sensor de humedad y humedad.
+#define pinTh  6 //Sensor de humedad y humedad.
 #define pinLDR A4 //Sensor luminosidad.
 DHT11 dht11(pinTh);
 
-/*Pines para leds. */
-const int ledRed = 7; //Para cuando se active la alarma.
-const int ledWhite = 6; //Mal estado de temperatura.
-const int ledGreen = 5; //Buen estado de temperatura.
-/* Pin alarma y botón*/
-const int buzzer = 4;
-const int btn = 3;
+const int ledRed = 2; //Para cuando se active la alarma.
+const int buzzer = 3;
+const int door = 4;
+const int ventilador = 5;
 
 /* Variables para calcular la humedad*/
 float te = 0;
@@ -30,112 +19,149 @@ float humedad = 0;
 const long A = 1000;     //Resistencia en oscuridad en KΩ
 const int B = 15;        //Resistencia a la luz (10 Lux) en KΩ
 const int Rc = 10;       //Resistencia calibracion en KΩ
+
 int V;
 int ilum;
 /* Calculo para temperatura y caracteres personalizados */
 float voltaje = 0;
 float  temperatura = 0;
-byte celsius[8] = {
-  0b11000,
-  0b11011,
-  0b00100,
-  0b01000,
-  0b01000,
-  0b00100,
-  0b00011,
-  0b00000
+
+int doorValue = 1;
+boolean isAlarmActive = false;
+byte mac[] = {
+  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
+IPAddress ip(192, 168, 1, 17);
 
-/*Variables a utilizar para la placa Ethernet */
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-IPAddress ip(192, 168, 1, 10); //Debe ser una dirección que no se utilice.
-EthernetServer server(80); //El puerto en el cual va a escuchar.
-String rdString = String(30);
+EthernetServer server(80);
 
-void setup()
-{
-  //Al inicializar, debemos levantar el servidor.
-  Ethernet.begin(mac, ip);
-  server.begin();
-  pinMode(ledRed, OUTPUT);
-  pinMode(ledWhite, OUTPUT);
-  pinMode(ledGreen, OUTPUT);
+void setup() {
+
   Serial.begin(9600);
+  
+  pinMode(ledRed, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+  pinMode(ventilador, OUTPUT);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+  Serial.println("Ethernet WebServer Example");
+
+  // start the Ethernet connection and the server:
+  Ethernet.begin(mac, ip);
+
+  // Check for Ethernet hardware present
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
+    while (true) {
+      delay(1); // do nothing, no point running without Ethernet hardware
+    }
+  }
+  if (Ethernet.linkStatus() == LinkOFF) {
+    Serial.println("Ethernet cable is not connected.");
+  }
+
+  // start the server
+  server.begin();
+  Serial.print("server is at ");
+  Serial.println(Ethernet.localIP());
 }
 
-void loop()
-{
 
-  /*Sección 2. Escucha del servidor web */
-  EthernetClient cliente = server.available();
-  if (cliente)
-  {
+void loop() {
+  // listen for incoming clients
+  EthernetClient client = server.available();
+  if (client) {
+    Serial.println("new client");
     boolean currentLineIsBlank = true;
-
-    while (cliente.connected())
-    {
-      if (cliente.available())
-      {
-        char c = cliente.read();
-        if (rdString.length() < 100) //Se lee peticiones de HTML caracter por caracter.
-        {
-          rdString += c;
+    String cadena = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        if (cadena.length()<50){
+          cadena.concat(c);
+           // Buscar campo data
+          int posicion = cadena.indexOf("data");
+          String command = cadena.substring(posicion);
+ 
+          if (command == "data1=0"){
+            digitalWrite(ventilador, HIGH);
+          }else if (command == "data1=1"){
+            digitalWrite(ventilador, LOW);
+          }else if (command == "data2=0"){
+            isAlarmActive = true;
+          }else if (command == "data2=1"){
+            isAlarmActive = false;
+            digitalWrite(buzzer, LOW);
+            digitalWrite(ledRed, LOW);
+          }
         }
-
-        if (c == "\n") //Si la petición se finaliza(del HTTP)..
-        {
-          //Aquí iria codigo bien shidori. Como encender los leds o no sé.
+        if(doorValue == 0 && isAlarmActive){
+          digitalWrite(buzzer, HIGH);
+          digitalWrite(ledRed, HIGH);
         }
-
-        rdString = "";
-        // Se envía la cabecera estándar de html.
-        cliente.println("HTTP/1.1 200 OK");
-        /* Por medio de println se envía la creación de la página web.*/
-        // cliente.println("Connection: close"); // En caso de que no responda.
-        // cliente.println("Refresh: 3"); // Refrescar la página automáticamente.
-        cliente.println();
-        //Realiza la lectura de humedad por medio de DHT11, es capaz de medir la temperatura
+        if (c == '\n' && currentLineIsBlank) {
+          // send a standard http response header
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-Type: text/html");
+          client.println("Connection: close");  // the connection will be closed after completion of the response
+          client.println("Refresh: 3");  // refresh the page automatically every 5 sec
+          client.println();
+          client.println("<!DOCTYPE HTML>");
+          //Realiza la lectura de humedad por medio de DHT11, es capaz de medir la temperatura
           dht11.read(humedad, te);
-        
+          doorValue = digitalRead(door);
           // Se realiza el calculo para la luminosidad con el foto resistor
           V = analogRead(pinLDR);
           ilum = ((long)V * A * 10) / ((long)B * Rc * (1024 - V));
-        /* Creando la página web. */
-        cliente.println("<html>");
-        cliente.println("<head>");
-        cliente.println("<title> Sistemas Programables </title>");
-        cliente.println("</head>");
-        cliente.println("<body BGCOLOR=#0B0B3B>");//Cambiar color.
-        cliente.println("<style> p { color:#FFFFFF; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial}</style>");
-        cliente.println("<style> p1 { color:#e1f54f; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial}</style>");
-        cliente.println("<style> p2 { color:#FFFFFF; font-size:13px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial}</style>");
-        cliente.println("<center>");
-        cliente.println("<p> Proyecto Final - Arduino IoT </p>");
-        cliente.println("<hr><br>");
-        cliente.println("<table>");
-        cliente.println("<tr><td><p2>Alarma</p2></td><td>");
-        cliente.println("<tr><td><form method=GET><input type=submit name=buzzer value=Encender></form></td>");
-        cliente.println("<tr><td><form method=GET><input type=submit name=buzzer value=Apagar ></form>");
-        cliente.println("</table>");
-        cliente.println("<p1> Sensores </p1>");
-        cliente.println("<hr><br>");
-        cliente.println("<p2>");
-        cliente.println("Temperatura: ");
-        cliente.println(te);
-        cliente.println("<br>");
-        cliente.println("Humedad: ");
-        cliente.println(humedad);
-        cliente.println("<br>");
-        cliente.println("Luminosidad: ");
-        cliente.println(ilum);
-        cliente.println("<br>");
-        cliente.println("</p2>");
-        cliente.println("</center>");
-        cliente.println("</body>");
-        cliente.println("</html>");
-        cliente.stop(); 
+         /* Creando la página web. */
+          client.println(F("<html>\n<head>\n<title>Sistemas Programables</title>\n</head>\n<body style='background-color:#0B0B3B;'>"));
+          client.println(F("<center>"));
+          client.println(F("<p style='color:#FFFFFF; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'> Proyecto Final - Arduino </p>"));
+          client.println(F("<p style='color:#e1f54f; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'> Sensores </p>"));
+          client.println(F("<div style='color:#FFFFFF; font-size:13px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'>"));
+          client.println("Temperatura: ");
+          client.println(te);
+          client.println(F("<br />"));
+          client.println("Humedad: ");
+          client.println(humedad);
+          client.println(F("<br />"));
+          client.println("Luminosidad: ");
+          client.println(ilum);
+          client.println(F("<br />"));
+          client.print(F("Ventilador = "));
+          client.println(digitalRead(ventilador) == LOW ? "OFF" : "ON");
+          client.println(F("<br/>"));
+          client.println(F("<button onClick=location.href='./?data1=0'>Activar</button>"));
+          client.println(F("<button onClick=location.href='./?data1=1'>Desactivar</button>"));
+          client.println(F("<br/>"));
+          client.print(F("Alarma = "));
+          if(isAlarmActive){
+            client.println("Activa");
+          }else{client.println("Desactivada");}
+          client.println(F("<br/>"));
+          client.println(F("<button onClick=location.href='./?data2=0'>Activar</button>"));
+          client.println(F("<button onClick=location.href='./?data2=1'>Desactivar</button>"));
+          client.println(F("<br/>"));
+          client.println(F("</div>"));
+          client.println(F("</center>\n</body></html>"));
+          
+          break;
+        }
+        if (c == '\n') {
+          // you're starting a new line
+          currentLineIsBlank = true;
+        } else if (c != '\r') {
+          // you've gotten a character on the current line
+          currentLineIsBlank = false;
+        }
       }
     }
+    // give the web browser time to receive the data
+    delay(50);
+    // close the connection:
+    client.stop();
+    Serial.println("client disconnected");
   }
-
 }
