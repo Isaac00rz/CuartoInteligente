@@ -10,6 +10,8 @@ const int ledRed = 2; //Para cuando se active la alarma.
 const int buzzer = 3;
 const int door = 4;
 const int ventilador = 5;
+const int ledFoco = 8;
+int valorLDR = 0;  
 
 /* Variables para calcular la humedad*/
 float te = 0;
@@ -42,6 +44,9 @@ void setup() {
   pinMode(ledRed, OUTPUT);
   pinMode(buzzer, OUTPUT);
   pinMode(ventilador, OUTPUT);
+  pinMode(ledFoco, OUTPUT);
+  pinMode(pinLDR, INPUT);
+  
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
@@ -89,12 +94,31 @@ void loop() {
             digitalWrite(ventilador, HIGH);
           }else if (command == "data1=1"){
             digitalWrite(ventilador, LOW);
-          }else if (command == "data2=0"){
+          }else if(command == "data1=2"){
+            dht11.read(humedad, te);
+            if(te>=18){
+              digitalWrite(ventilador, HIGH);
+              }else{
+                digitalWrite(ventilador, LOW);
+                }
+            }else if (command == "data2=0"){
             isAlarmActive = true;
           }else if (command == "data2=1"){
             isAlarmActive = false;
             digitalWrite(buzzer, LOW);
             digitalWrite(ledRed, LOW);
+          }else if(command == "data3=0"){
+              V = analogRead(pinLDR);
+              ilum = ((long)V * A * 10) / ((long)B * Rc * (1024 - V));
+              if(ilum<1){
+                  digitalWrite(ledFoco, HIGH);
+              }else{
+                digitalWrite(ledFoco, LOW);
+              }
+          }else if(command == "data3=1"){
+              digitalWrite(ledFoco, LOW);
+          }else if(command == "data3=2"){
+              digitalWrite(ledFoco, HIGH);
           }
         }
         if(doorValue == 0 && isAlarmActive){
@@ -118,7 +142,7 @@ void loop() {
          /* Creando la página web. */
           client.println(F("<html>\n<head>\n<title>Sistemas Programables</title>\n</head>\n<body style='background-color:#0B0B3B;'>"));
           client.println(F("<center>"));
-          client.println(F("<p style='color:#FFFFFF; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'> Proyecto Final - Arduino </p>"));
+          client.println(F("<p style='color:#FFFFFF; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'> Cuarto Inteligente </p>"));
           client.println(F("<p style='color:#e1f54f; font-size:20px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'> Sensores </p>"));
           client.println(F("<div style='color:#FFFFFF; font-size:13px;font-weight: bold; font-family:Sans-Serif, Helvetica, Arial;'>"));
           client.println("Temperatura: ");
@@ -135,6 +159,7 @@ void loop() {
           client.println(F("<br/>"));
           client.println(F("<button onClick=location.href='./?data1=0'>Activar</button>"));
           client.println(F("<button onClick=location.href='./?data1=1'>Desactivar</button>"));
+          client.println(F("<button onClick=location.href='./?data1=2'>Automatico</button>"));
           client.println(F("<br/>"));
           client.print(F("Alarma = "));
           if(isAlarmActive){
@@ -143,6 +168,12 @@ void loop() {
           client.println(F("<br/>"));
           client.println(F("<button onClick=location.href='./?data2=0'>Activar</button>"));
           client.println(F("<button onClick=location.href='./?data2=1'>Desactivar</button>"));
+          client.println(F("<br/>"));
+          client.print(F("Luminocidad"));
+          client.println(F("<br/>"));
+          client.println(F("<button onClick=location.href='./?data3=0'>Automatico</button>"));
+          client.println(F("<button onClick=location.href='./?data3=1'>Desactivar</button>"));
+          client.println(F("<button onClick=location.href='./?data3=2'>Activar</button>"));
           client.println(F("<br/>"));
           client.println(F("</div>"));
           client.println(F("</center>\n</body></html>"));
